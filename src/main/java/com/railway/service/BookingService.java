@@ -1,0 +1,20 @@
+package com.railway.service;
+import com.railway.util.DB;import java.sql.*;import java.math.BigDecimal;import java.time.LocalDate;import java.util.*;
+public class BookingService {
+ public String reserve(long userId,long trainId,LocalDate date,List<Passenger> passengers)throws SQLException{
+  if(userId<=0||trainId<=0||date==null||date.isBefore(LocalDate.now())||passengers==null||passengers.isEmpty()||passengers.size()>6)throw new IllegalArgumentException("Invalid reservation details");
+  for(Passenger p:passengers)if(p.name()==null||!p.name().trim().matches("[\\p{L}][\\p{L} .'-]{1,98}")||p.age()<0||p.age()>120||!Set.of("FEMALE","MALE","OTHER").contains(p.gender()))throw new IllegalArgumentException("Invalid passenger details");
+  try(Connection c=DB.getConnection()){c.setAutoCommit(false);try{
+   long scheduleId;int seats;BigDecimal fare;
+   try(PreparedStatement p=c.prepareStatement("SELECT s.id,s.available_seats,t.fare FROM train_schedules s JOIN trains t ON t.id=s.train_id WHERE s.train_id=? AND s.journey_date=? AND t.active=1 FOR UPDATE")){p.setLong(1,trainId);p.setDate(2,java.sql.Date.valueOf(date));try(ResultSet r=p.executeQuery()){if(!r.next())throw new IllegalArgumentException("Train schedule not found");scheduleId=r.getLong(1);seats=r.getInt(2);fare=r.getBigDecimal(3);}}
+   if(seats<passengers.size())throw new IllegalArgumentException("Not enough seats available");
+   try(PreparedStatement p=c.prepareStatement("UPDATE train_schedules SET available_seats=available_seats-? WHERE id=? AND available_seats>=?")){p.setInt(1,passengers.size());p.setLong(2,scheduleId);p.setInt(3,passengers.size());if(p.executeUpdate()!=1)throw new IllegalArgumentException("Not enough seats available");}
+   String pnr=UUID.randomUUID().toString().replace("-","").substring(0,12).toUpperCase(Locale.ROOT);long bookingId;
+   try(PreparedStatement p=c.prepareStatement("INSERT INTO bookings(pnr,user_id,schedule_id,passenger_count,total_fare) VALUES(?,?,?,?,?)",Statement.RETURN_GENERATED_KEYS)){p.setString(1,pnr);p.setLong(2,userId);p.setLong(3,scheduleId);p.setInt(4,passengers.size());p.setBigDecimal(5,fare.multiply(BigDecimal.valueOf(passengers.size())));p.executeUpdate();try(ResultSet r=p.getGeneratedKeys()){r.next();bookingId=r.getLong(1);}}
+   try(PreparedStatement p=c.prepareStatement("INSERT INTO passengers(booking_id,full_name,age,gender) VALUES(?,?,?,?)")){for(Passenger x:passengers){p.setLong(1,bookingId);p.setString(2,x.name().trim());p.setInt(3,x.age());p.setString(4,x.gender());p.addBatch();}p.executeBatch();}
+   c.commit();return pnr;
+  }catch(Exception e){c.rollback();if(e instanceof SQLException se)throw se;if(e instanceof RuntimeException re)throw re;throw new SQLException("Reservation failed",e);}finally{c.setAutoCommit(true);}}
+ }
+ public boolean cancel(long userId,String pnr)throws SQLException{try(Connection c=DB.getConnection()){c.setAutoCommit(false);try{long id,schedule;int count;String status;try(PreparedStatement p=c.prepareStatement("SELECT id,schedule_id,passenger_count,status FROM bookings WHERE pnr=? AND user_id=? FOR UPDATE")){p.setString(1,pnr);p.setLong(2,userId);try(ResultSet r=p.executeQuery()){if(!r.next())throw new IllegalArgumentException("Booking not found");id=r.getLong(1);schedule=r.getLong(2);count=r.getInt(3);status=r.getString(4);}}if("CANCELLED".equals(status)){c.commit();return false;}try(PreparedStatement p=c.prepareStatement("UPDATE bookings SET status='CANCELLED',cancelled_at=CURRENT_TIMESTAMP WHERE id=? AND status='CONFIRMED'")){p.setLong(1,id);if(p.executeUpdate()!=1){c.rollback();return false;}}try(PreparedStatement p=c.prepareStatement("UPDATE train_schedules SET available_seats=available_seats+? WHERE id=?")){p.setInt(1,count);p.setLong(2,schedule);p.executeUpdate();}c.commit();return true;}catch(Exception e){c.rollback();if(e instanceof SQLException se)throw se;if(e instanceof RuntimeException re)throw re;throw new SQLException(e);}finally{c.setAutoCommit(true);}}}
+ public record Passenger(String name,int age,String gender){}
+}

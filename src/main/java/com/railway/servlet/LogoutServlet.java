@@ -1,0 +1,1 @@
+package com.railway.servlet;import jakarta.servlet.http.*;import java.io.IOException;public class LogoutServlet extends HttpServlet{protected void doPost(HttpServletRequest r,HttpServletResponse s)throws IOException{HttpSession h=r.getSession(false);if(h!=null)h.invalidate();s.sendRedirect(r.getContextPath()+"/");}}

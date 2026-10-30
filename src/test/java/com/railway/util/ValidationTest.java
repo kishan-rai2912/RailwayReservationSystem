@@ -1,0 +1,3 @@
+package com.railway.util;
+import org.junit.jupiter.api.Test;import static org.junit.jupiter.api.Assertions.*;
+class ValidationTest {@Test void validatesEmail(){assertTrue(Validation.email("person@example.com"));assertFalse(Validation.email("not-an-email"));}@Test void validatesPhone(){assertTrue(Validation.phone("+91 98765 43210"));assertFalse(Validation.phone("x"));}@Test void validatesName(){assertTrue(Validation.name("Asha Sharma"));assertFalse(Validation.name("<script>"));}@Test void validatesAge(){assertTrue(Validation.age("0"));assertTrue(Validation.age("120"));assertFalse(Validation.age("121"));assertFalse(Validation.age("abc"));}}
